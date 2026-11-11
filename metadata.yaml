@@ -1,7 +1,7 @@
 name: astrbot_plugin_calendar
 display_name: 历记
 desc: QQ 个人月历图片、独立标记与 AI 工具、管理员日历同步，支持农历干支、彩色备注及文本批量导入。
-version: 0.3.0
+version: 0.3.1
 author: hr
 repo: "https://github.com/RioMaker/astrbot_plugin_calendar.git"
 astrbot_version: ">=4.29.4,<5"

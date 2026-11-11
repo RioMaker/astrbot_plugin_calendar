@@ -5,6 +5,7 @@ These do not claim to exercise a live AstrBot dashboard or OneBot deployment.
 
 import json
 import os
+import re
 import threading
 from pathlib import Path
 
@@ -82,13 +83,14 @@ def close_detail(page):
     expect(page.locator("#detail-dialog")).not_to_be_visible()
 
 
-def test_three_rings_rapid_clicks_eraser_navigation_and_refresh(calendar_page):
+def test_marker_counts_rapid_clicks_eraser_navigation_and_refresh(calendar_page):
     page = calendar_page
     page.locator('#pens button[data-pen="income"]').click()
     for _ in range(4):
         day(page).click()
     saved(page)
-    expect(day(page).locator(".mark-shape")).to_have_count(3)
+    expect(day(page).locator(".marker-badge")).to_have_count(1)
+    expect(day(page).locator(".marker-count")).to_have_text("3")
     expect(page.locator("#detail-dialog")).not_to_be_visible()
     page.locator("#year-target").click()
     page.locator("#month-target").click()
@@ -98,15 +100,15 @@ def test_three_rings_rapid_clicks_eraser_navigation_and_refresh(calendar_page):
     page.locator("#eraser").click()
     day(page).click()
     saved(page)
-    expect(day(page).locator(".mark-shape")).to_have_count(2)
+    expect(day(page).locator(".marker-count")).to_have_text("2")
     page.locator("#next").click()
     expect(page.locator("#calendar-caption")).to_have_text("2026年12月")
     expect(page.locator("#month-target .mark-shape")).to_have_count(0)
     page.locator("#prev").click()
     expect(page.locator("#calendar-caption")).to_have_text("2026年11月")
-    expect(day(page).locator(".mark-shape")).to_have_count(2)
+    expect(day(page).locator(".marker-count")).to_have_text("2")
     page.reload()
-    expect(day(page).locator(".mark-shape")).to_have_count(2)
+    expect(day(page).locator(".marker-count")).to_have_text("2")
     day(page).click()
     expect(page.locator("#detail-dialog")).to_be_visible()
 
@@ -132,6 +134,113 @@ def test_create_custom_pen_and_edit_existing_shape(calendar_page):
     saved(page)
     page.locator("#close-settings").click()
     expect(day(page).locator("rect.mark-shape")).to_have_count(1)
+
+
+def test_side_markers_never_cover_numbers_each_other_or_holiday(calendar_page):
+    page = calendar_page
+    target = page.evaluate("""async () => {
+      const bridge = window.AstrBotPluginView;
+      let snapshot = await bridge.apiGet('month');
+      let revision = snapshot.revision;
+      const save = async payload => {
+        const result = await bridge.apiPost('mutate', {...payload, revision});
+        revision = result.revision;
+      };
+      for (const pen of [
+        {id:'expense', name:'破财', color:'#252a34', shape:'square'},
+        {id:'review', name:'重要安排', color:'#2852aa', shape:'diamond'},
+        {id:'remind', name:'待确认', color:'#a2782d', shape:'triangle'},
+      ]) await save({operation:'pen.save', ...pen});
+      const target = snapshot.today;
+      const result = await bridge.apiPost('import', {revision, text:JSON.stringify({
+        format:'liji-import-v1', entries:[target.slice(0,4), target.slice(0,7), target].map(date => ({
+          date, marks:['得财','破财','重要安排','待确认'].map(pen => ({pen,layers:3})),
+          events:[{text:'已有标记完整保留，多种含义独立显示。'},{text:'第二条备注也应保持可读。'}]
+        }))
+      })});
+      revision = result.revision;
+      await save({operation:'target.save',target,values:{},festivals:['纪念日'],holiday:{status:'holiday',name:'测试安排'}});
+      return target;
+    }""")
+    page.reload()
+    jump(page, int(target[:4]), int(target[5:7]))
+    cell = page.locator(f'td[data-target="{target}"]')
+    targets = [
+        day(page, target),
+        page.locator("#year-target"),
+        page.locator("#month-target"),
+    ]
+    for node in targets:
+        expect(node.locator(".marker-badge")).to_have_count(4)
+        expect(node.locator(".marker-count")).to_have_text(["3", "3", "3", "3"])
+        expect(node).to_have_attribute("aria-label", re.compile("得财 3层.*破财 3层"))
+    expect(cell.locator(".holiday-badge")).to_have_text("休")
+    expect(cell.locator(".today-tick")).to_have_text("今")
+    day(page, target).locator('.marker-badge[data-pen="income"]').hover()
+    expect(page.locator("#tooltip")).to_have_text("得财 · 3层")
+    page.mouse.move(0, 0)
+    out = ROOT / ".preview"
+    out.mkdir(exist_ok=True)
+    for width in [1440, 980, 390, 320]:
+        page.set_viewport_size({"width": width, "height": 1100 if width > 650 else 844})
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        for node in targets:
+            issues = node.evaluate("""root => {
+              const box = root.getBoundingClientRect();
+              const numeral = root.querySelector('.date-label, .numeral').getBoundingClientRect();
+              const badges = [...root.querySelectorAll('.marker-badge')].map(node => node.getBoundingClientRect());
+              const issues = [];
+              for (const [i, badge] of badges.entries()) {
+                if (badge.left < numeral.right + 2) issues.push('covers numeral '+i);
+                if (badge.right > box.right + .5 || badge.bottom > box.bottom + .5) issues.push('overflows target '+i);
+                for (const [j, other] of badges.entries()) {
+                  if (j <= i) continue;
+                  if (Math.min(badge.right, other.right) - Math.max(badge.left, other.left) > .5 &&
+                      Math.min(badge.bottom, other.bottom) - Math.max(badge.top, other.top) > .5) issues.push('overlapping badges '+i+','+j);
+                }
+              }
+              return issues;
+            }""")
+            assert issues == [], f"{width}px: {issues}"
+        assert cell.evaluate("""root => {
+          const button = root.querySelector('.day-number').getBoundingClientRect();
+          const caption = root.querySelector('.day-caption').getBoundingClientRect();
+          const cell = root.getBoundingClientRect();
+          return button.bottom <= caption.top && button.right <= cell.right && caption.bottom <= cell.bottom;
+        }""")
+        if width == 1440:
+            page.screenshot(
+                path=str(out / "side-markers-desktop.png"),
+                full_page=True,
+                animations="disabled",
+            )
+            cell.locator("..").screenshot(
+                path=str(out / "side-markers-row.png"), animations="disabled"
+            )
+        elif width == 390:
+            day(page, target).scroll_into_view_if_needed()
+            page.screenshot(
+                path=str(out / "side-markers-mobile.png"),
+                full_page=True,
+                animations="disabled",
+            )
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.evaluate("document.documentElement.dataset.theme='dark'")
+    page.screenshot(
+        path=str(out / "side-markers-dark.png"), full_page=True, animations="disabled"
+    )
+    # Each badge remains a usable date target; editing one pen preserves the rest.
+    day(page, target).locator('.marker-badge[data-pen="income"]').click()
+    expect(page.locator("#detail-marks")).to_contain_text("得财 ×3")
+    page.locator('#detail-marks [data-remove-mark="expense"]').click()
+    saved(page)
+    close_detail(page)
+    expect(
+        day(page, target).locator('.marker-badge[data-pen="income"] .marker-count')
+    ).to_have_text("3")
+    expect(
+        day(page, target).locator('.marker-badge[data-pen="expense"] .marker-count')
+    ).to_have_text("2")
 
 
 def add_note(page, text, color="#658773"):
@@ -400,7 +509,7 @@ def test_astrbot_sandbox_without_native_modals_or_same_origin(calendar_page):
     frame.locator("#commit-import").click()
     expect(frame.locator("#import-result")).to_contain_text("导入完成")
     frame.locator("#close-import").click()
-    expect(day(frame).locator(".mark-shape")).to_have_count(2)
+    expect(day(frame).locator(".marker-count")).to_have_text("2")
 
 
 def import_source():
@@ -450,7 +559,7 @@ def test_batch_import_preview_repeat_cross_month_and_edit_invalidation(calendar_
     page.locator("#commit-import").click()
     expect(page.locator("#import-result")).to_contain_text("新增 0 个事件")
     page.locator("#close-import").click()
-    expect(day(page).locator(".mark-shape")).to_have_count(2)
+    expect(day(page).locator(".marker-count")).to_have_text("2")
     day(page).click()
     expect(page.locator("#note-list .note-card")).to_have_count(1)
     close_detail(page)
@@ -508,7 +617,13 @@ def test_batch_import_stale_preview_conflict_refresh_and_retry(calendar_page):
     page.locator("#commit-import").click()
     expect(page.locator("#import-result")).to_contain_text("导入完成")
     page.locator("#close-import").click()
-    expect(day(page).locator(".mark-shape")).to_have_count(3)
+    expect(day(page).locator(".marker-badge")).to_have_count(2)
+    expect(
+        day(page).locator('.marker-badge[data-pen="income"] .marker-count')
+    ).to_have_text("2")
+    expect(
+        day(page).locator('.marker-badge[data-pen="expense"] .marker-count')
+    ).to_have_text("1")
     other.close()
 
 

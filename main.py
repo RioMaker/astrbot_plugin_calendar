@@ -99,7 +99,7 @@ class CalendarPlugin(Star):
         if not date_text:
             yield event.plain_result(
                 "历记：请在 AstrBot WebUI → 插件 → 历记 → 可视化页面 → calendar 中编辑。\n"
-                "红圈默认表示得财，黑圈默认表示破财；同一画笔最多三层。\n"
+                "红色标记默认表示得财，黑色标记默认表示破财；标记显示在数字旁，层数以 1–3 表示，多种标记独立排列。\n"
                 "可用 /历记 YYYY-MM-DD 查询日期基础信息，备注只在管理页面显示。"
             )
             return

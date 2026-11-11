@@ -27,42 +27,42 @@ export const shapeNames = {
   triangle: "三角形",
 };
 
-function shape(type, cx, rx, ry, attrs) {
-  if (type === "square")
-    return `<rect x="${cx - rx}" y="${45 - ry}" width="${rx * 2}" height="${ry * 2}" rx="4" ${attrs}/>`;
-  if (type === "diamond")
-    return `<polygon points="${cx},${45 - ry} ${cx + rx},45 ${cx},${45 + ry} ${cx - rx},45" ${attrs}/>`;
-  if (type === "triangle")
-    return `<polygon points="${cx},${45 - ry} ${cx + rx},${45 + ry} ${cx - rx},${45 + ry}" ${attrs}/>`;
-  return `<ellipse cx="${cx}" cy="45" rx="${rx}" ry="${ry}" ${attrs}/>`;
+function penSVG(pen) {
+  const attrs = `fill="none" stroke="${escapeHTML(pen.color)}" stroke-width="2" stroke-linejoin="round" class="mark-shape" data-pen="${escapeHTML(pen.id)}"`;
+  const shapes = {
+    circle: `<circle cx="12" cy="12" r="8" ${attrs}/>`,
+    square: `<rect x="4" y="4" width="16" height="16" rx="2" ${attrs}/>`,
+    diamond: `<polygon points="12,3 21,12 12,21 3,12" ${attrs}/>`,
+    triangle: `<polygon points="12,3 22,21 2,21" ${attrs}/>`,
+  };
+  return `<svg class="marker-symbol" aria-hidden="true" viewBox="0 0 24 24">${shapes[pen.shape] || shapes.circle}</svg>`;
 }
 
-export function markerSVG(marks, pens, wide = false) {
-  let ring = 0,
-    paths = "";
-  const layers = marks.reduce((sum, mark) => sum + mark.layers, 0);
-  const spacing = Math.min(5, 12 / Math.max(1, layers - 1));
-  const stroke = Math.min(1.8, spacing * 0.6);
-  for (const mark of marks) {
-    const pen = pens.find((p) => p.id === mark.pen_id);
-    if (!pen) continue;
-    for (let layer = 0; layer < mark.layers; layer++, ring++) {
-      const angular = ["diamond", "triangle"].includes(pen.shape);
-      const attrs = `fill="none" stroke="${escapeHTML(pen.color)}" stroke-width="${stroke}" class="mark-shape" data-pen="${escapeHTML(pen.id)}"`;
-      paths += shape(
-        pen.shape,
-        wide ? 90 : 50,
-        (wide ? (angular ? 78 : 65) : angular ? 38 : 26) + ring * spacing,
-        (angular ? 30 : 24) + ring * spacing,
-        attrs,
-      );
-    }
-  }
-  return `<svg aria-hidden="true" viewBox="0 0 ${wide ? 180 : 100} 90">${paths}</svg>`;
+function visibleMarks(marks, pens) {
+  return marks
+    .map((mark) => ({ mark, pen: pens.find((p) => p.id === mark.pen_id) }))
+    .filter(({ pen }) => pen);
+}
+
+export function markerLabel(marks, pens) {
+  return visibleMarks(marks, pens)
+    .map(({ mark, pen }) => `${pen.name} ${mark.layers}层`)
+    .join("；");
+}
+
+export function markerBadges(marks, pens) {
+  const entries = visibleMarks(marks, pens);
+  if (!entries.length) return "";
+  return `<span class="marker-list" aria-hidden="true">${entries
+    .map(({ mark, pen }) => {
+      const label = `${pen.name} · ${mark.layers}层`;
+      return `<span class="marker-badge" data-pen="${escapeHTML(pen.id)}" data-layers="${mark.layers}" data-tooltip="${escapeHTML(label)}">${penSVG(pen)}<span class="marker-count">${mark.layers}</span></span>`;
+    })
+    .join("")}</span>`;
 }
 
 export function penGlyph(pen) {
-  return `<span class="pen-glyph">${markerSVG([{ pen_id: pen.id, layers: 1 }], [pen])}</span>`;
+  return `<span class="pen-glyph">${penSVG(pen)}</span>`;
 }
 
 export function noteBar(note, target) {
@@ -95,7 +95,8 @@ export function dayCell(day, item, catalog, today, selected) {
     ? `<span class="holiday-badge ${holiday.status === "workday" ? "workday" : ""} ${holiday.source === "manual" ? "manual" : ""}" title="${e(holiday.name)} ${e(statusNames[holiday.status])}${holiday.source === "manual" ? "（手动）" : ""}">${holiday.status === "holiday" ? "休" : "班"}</span>`
     : "";
   const states = stateText(item, catalog.fields);
-  return `<td class="${cls}" data-target="${key}" data-editable="${day.editable}"><div class="day-top"><button class="number-target day-number" data-target="${key}" aria-label="${key} ${e(day.weekday_label)}" ${day.editable ? "" : "disabled"}><span class="numeral">${day.day}</span>${markerSVG(item.marks, catalog.pens)}${key === today ? '<span class="today-tick">今</span>' : ""}</button>${badge}</div><div class="lunar-label ${festivals.length ? "festival-label" : day.solar_term ? "term-label" : ""}" title="${e([day.lunar, ...festivals, day.solar_term].filter(Boolean).join(" · "))}">${e(caption)}</div><div class="day-ganzhi"><span>${e(day.ganzhi.day.text)}</span><span class="element-pair">${e(day.ganzhi.day.gan_element + day.ganzhi.day.zhi_element)}</span></div>${states.length ? `<div class="state-chip" data-tooltip="${e(states.join("\n"))}">${e(states.join(" · "))}</div>` : ""}<div class="cell-notes">${item.notes
+  const marksLabel = markerLabel(item.marks, catalog.pens);
+  return `<td class="${cls}" data-target="${key}" data-editable="${day.editable}"><div class="day-top"><button class="number-target day-number" data-target="${key}" aria-label="${key} ${e(day.weekday_label)}${marksLabel ? `；标记：${e(marksLabel)}` : ""}" ${day.editable ? "" : "disabled"}><span class="date-label"><span class="numeral">${day.day}</span>${key === today ? '<span class="today-tick">今</span>' : ""}</span>${markerBadges(item.marks, catalog.pens)}</button></div><div class="day-caption"><div class="lunar-label ${festivals.length ? "festival-label" : day.solar_term ? "term-label" : ""}" title="${e([day.lunar, ...festivals, day.solar_term].filter(Boolean).join(" · "))}">${e(caption)}</div>${badge}</div><div class="day-ganzhi"><span>${e(day.ganzhi.day.text)}</span><span class="element-pair">${e(day.ganzhi.day.gan_element + day.ganzhi.day.zhi_element)}</span></div>${states.length ? `<div class="state-chip" data-tooltip="${e(states.join("\n"))}">${e(states.join(" · "))}</div>` : ""}<div class="cell-notes">${item.notes
     .slice(0, 2)
     .map((n) => noteBar(n, key))
     .join(

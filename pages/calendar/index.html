@@ -53,18 +53,22 @@
         <header class="calendar-header">
           <div class="month-heading">
             <div class="month-numbers">
-              <button
-                id="year-target"
-                class="number-target heading-target"
-                aria-label="编辑年份"
-              ></button
-              ><span class="date-unit">年</span
-              ><button
-                id="month-target"
-                class="number-target heading-target month-number"
-                aria-label="编辑月份"
-              ></button
-              ><span class="date-unit">月</span>
+              <span class="period-target-group">
+                <button
+                  id="year-target"
+                  class="number-target heading-target"
+                  aria-label="编辑年份"
+                ></button
+                ><span class="date-unit">年</span>
+              </span>
+              <span class="period-target-group">
+                <button
+                  id="month-target"
+                  class="number-target heading-target month-number"
+                  aria-label="编辑月份"
+                ></button
+                ><span class="date-unit">月</span>
+              </span>
             </div>
             <div id="month-summary" class="month-summary"></div>
           </div>
@@ -112,7 +116,7 @@
           >
         </footer>
       </section>
-      <p class="bottom-note">把重要的日子圈起来，把想记住的事写下来。</p>
+      <p class="bottom-note">给重要的日子做标记，把想记住的事写下来。</p>
     </main>
 
     <dialog

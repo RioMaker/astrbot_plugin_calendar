@@ -1,7 +1,8 @@
 import {
   escapeHTML as e,
   blankItem,
-  markerSVG,
+  markerBadges,
+  markerLabel,
   penGlyph,
   noteBar,
   stateText,
@@ -186,7 +187,7 @@ function renderTools() {
   }
   const pen = data.catalog.pens.find((p) => p.id === mode);
   $("mode-hint").textContent = pen
-    ? `正在使用「${pen.name}」：点击年、月或日增加一层，最多三层。再次点击画笔可取消选择。`
+    ? `正在使用「${pen.name}」：点击年、月或日增加一层，最多三层；旁边的数字表示层数，多种标记独立显示。再次点击画笔可取消选择。`
     : mode === "eraser"
       ? "橡皮：点击年、月或日，按最后绘制的顺序擦除一层。"
       : "点击日期添加备注；选择画笔，为年、月、日做标记。";
@@ -202,16 +203,18 @@ function render() {
 function renderCalendar() {
   const year = String(data.year),
     month = `${year}-${String(data.month).padStart(2, "0")}`;
-  for (const [id, key, label, wide] of [
-    ["year-target", year, year, true],
-    ["month-target", month, String(data.month).padStart(2, "0"), false],
+  for (const [id, key, label] of [
+    ["year-target", year, year],
+    ["month-target", month, String(data.month).padStart(2, "0")],
   ]) {
+    const marks = itemFor(key).marks;
+    const marksLabel = markerLabel(marks, data.catalog.pens);
     $(id).innerHTML =
-      `<span class="numeral">${label}</span>${markerSVG(itemFor(key).marks, data.catalog.pens, wide)}`;
+      `<span class="numeral">${label}</span>${markerBadges(marks, data.catalog.pens)}`;
     $(id).dataset.target = key;
     $(id).setAttribute(
       "aria-label",
-      `编辑${key.length === 4 ? "年份" : "月份"} ${key}`,
+      `编辑${key.length === 4 ? "年份" : "月份"} ${key}${marksLabel ? `；标记：${marksLabel}` : ""}`,
     );
   }
   const first = data.days.find((d) => d.in_month);

@@ -1,0 +1,19 @@
+{
+  "format": "liji-import-v1",
+  "entries": [
+    {
+      "date": "2026-11-15",
+      "marks": [{ "pen": "得财", "layers": 2 }],
+      "events": [{ "text": "计划：核对本月收入", "color": "#658773" }]
+    },
+    {
+      "date": "2026-11-20",
+      "marks": [{ "pen": "破财", "layers": 1 }],
+      "events": [{ "text": "计划：支付账单", "color": "#ce4545" }]
+    },
+    {
+      "date": "2026-11-30",
+      "events": [{ "text": "计划：月末复盘" }]
+    }
+  ]
+}

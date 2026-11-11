@@ -16,12 +16,14 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from core.calendar import CalendarService, today  # noqa: E402
+from core.importing import MAX_REQUEST_BYTES, CalendarImporter  # noqa: E402
 from core.store import CalendarStore, ConflictError, ValidationError  # noqa: E402
 
 
 def create_server(database, port=8765):
     store = CalendarStore(database)
     service = CalendarService(store)
+    importer = CalendarImporter(store)
     nonce = secrets.token_urlsafe(32)
 
     class Handler(BaseHTTPRequestHandler):
@@ -108,14 +110,20 @@ window.AstrBotPluginView={ready:async()=>({isDark:false}),apiGet:(n,p)=>call(n,p
                 f"http://127.0.0.1:{self.server.server_port}",
             ):
                 return self.reply(403, {"message": "预览凭据或来源无效"})
-            if self.path != "/api/mutate":
+            if self.path not in {"/api/mutate", "/api/import/preview", "/api/import"}:
                 return self.reply(404, {"message": "接口不存在"})
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                if not 0 < length <= 65536:
+                limit = 65536 if self.path == "/api/mutate" else MAX_REQUEST_BYTES
+                if not 0 < length <= limit:
                     return self.reply(413, {"message": "请求内容过大或为空"})
                 payload = json.loads(self.rfile.read(length))
-                return self.reply(200, store.mutate(payload))
+                result = (
+                    store.mutate(payload)
+                    if self.path == "/api/mutate"
+                    else importer.run(payload, commit=self.path == "/api/import")
+                )
+                return self.reply(200, result)
             except ConflictError as exc:
                 return self.reply(409, {"message": str(exc)})
             except (ValidationError, ValueError) as exc:

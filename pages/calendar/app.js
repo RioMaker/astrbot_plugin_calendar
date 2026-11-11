@@ -16,6 +16,10 @@ const bridge = window.AstrBotPluginView || window.AstrBotPluginPage;
 const detail = $("detail-dialog"),
   settings = $("settings-dialog");
 const confirmation = $("confirm-dialog");
+const importDialog = $("import-dialog");
+let importPreview = null,
+  importBusy = false,
+  importDirty = false;
 let confirmResolve;
 function askConfirmation(message) {
   $("confirm-message").textContent = message;
@@ -104,7 +108,9 @@ async function loadMonth(year, month) {
     if (sequence !== loadSequence) return;
     if (data && snapshot.revision < data.revision)
       return loadMonth(year, month);
+    if (data && snapshot.revision !== data.revision) invalidateImportPreview();
     data = snapshot;
+    if (importDialog.open) renderImportTemplate();
     if (
       !["browse", "eraser"].includes(mode) &&
       !data.catalog.pens.some((p) => p.id === mode)
@@ -117,13 +123,15 @@ async function loadMonth(year, month) {
       renderNotesAndMarks();
       if (!targetDirty) renderTargetForm();
     }
+    return true;
   } catch (error) {
     if (sequence === loadSequence)
       showError(error.message || "读取失败，请重试");
+    return false;
   }
 }
 
-function mutate(payload) {
+function mutate(payload, { path = "mutate", revision } = {}) {
   const epoch = writeEpoch;
   pending++;
   savedStatus();
@@ -131,12 +139,14 @@ function mutate(payload) {
     if (epoch !== writeEpoch)
       throw new Error("已取消排队操作，请核对日历后重试");
     try {
-      const result = await bridge.apiPost("mutate", {
+      const result = await bridge.apiPost(path, {
         ...payload,
-        revision: data.revision,
+        revision: revision ?? data.revision,
       });
+      if (result.revision !== data.revision) invalidateImportPreview();
       data.revision = result.revision;
       data.catalog = result.catalog;
+      if (result.items) Object.assign(data.items, result.items);
       if (result.target) data.items[result.target] = result.item;
       clearError();
       render();
@@ -763,6 +773,216 @@ $("export").onclick = async () => {
   }
 };
 
+function importTemplate() {
+  const month = `${data.year}-${String(data.month).padStart(2, "0")}`;
+  return {
+    format: "liji-import-v1",
+    entries: [1, 2].map((day, index) => ({
+      date: `${month}-${String(day).padStart(2, "0")}`,
+      marks: data.catalog.pens.length
+        ? [
+            {
+              pen: data.catalog.pens[index % data.catalog.pens.length].name,
+              layers: 1,
+            },
+          ]
+        : [],
+      events: [
+        {
+          text: "示例事件：请替换为该日期的实际内容",
+          color: data.catalog.note_color,
+        },
+      ],
+    })),
+  };
+}
+function renderImportTemplate() {
+  const available = data.catalog.pens
+    .map(
+      (pen) =>
+        `${JSON.stringify(pen.name)}（${shapeNames[pen.shape]}，${pen.color}）`,
+    )
+    .join("；");
+  $("import-prompt").value = `请按以下要求生成“历记”日历批量导入 JSON。
+日期范围：【填写开始和结束日期，或指定日期列表】
+生成要求：【填写每个日期需要的标记、层数与事件内容】
+
+仅输出一个 JSON 对象，不加解释，不添加模板之外的字段。
+format 固定为 "liji-import-v1"，entries 是 1–500 条记录的数组。
+date 使用有效公历 YYYY-MM-DD，支持 1901–2099 年；年或月记录也可用 YYYY、YYYY-MM，各层级独立保存。
+marks 是标记数组，pen 必须与现有画笔名称完全一致，layers 为 1–3 的整数（省略为 1）。每条记录最多四种不同画笔。
+当前可用画笔：${available || "暂无；marks 请填 []。如需标记，请先在日历新建画笔后重新复制提示词。"}
+events 是事件数组，text 为 1–4000 字正文，color 可省略，省略时使用当前默认色 ${data.catalog.note_color}；指定时使用 #RRGGBB。每个日期合计最多 50 个事件。
+marks、events 可以省略其一，但每条记录至少包含一个标记或事件。同一日期可以有多个事件。
+保留已有内容：标记只补足到 layers，不减少或重复叠加；同一日期、正文和颜色相同的事件跳过。需要区分的同名事件请在正文中写明时间或编号。
+只生成指定范围内的日期；不要编造已发生事件，计划内容请写明“计划”。不确定的信息不要当作事实填写。
+总文本不超过 512 KiB，超出 500 条请分批。以下仅为格式示例，请按上述日期和要求替换：
+${JSON.stringify(importTemplate(), null, 2)}`;
+}
+function importSummary(summary) {
+  return `${summary.entries} 条记录 · ${summary.targets} 个年月日 · 补充 ${summary.mark_layers_added} 层标记 · 新增 ${summary.events_added} 个事件 · 跳过 ${summary.skipped} 个已满足标记或重复事件`;
+}
+function updateImportControls() {
+  $("import-text").disabled = importBusy;
+  $("preview-import").disabled = importBusy;
+  $("refresh-import").disabled = importBusy;
+  $("commit-import").disabled = importBusy || !importPreview;
+}
+function invalidateImportPreview() {
+  importPreview = null;
+  $("import-preview").hidden = true;
+  $("import-status").textContent = "文本或数据变化后，请重新校验预览";
+  updateImportControls();
+}
+function importError(message) {
+  $("import-error").textContent = message;
+  $("import-error").hidden = false;
+  $("import-status").textContent = "未完成导入，文本已保留";
+}
+function renderImportPreview(result) {
+  $("import-summary").textContent = importSummary(result.summary);
+  $("import-rows").innerHTML = result.rows
+    .map(
+      (row, index) =>
+        `<article class="import-row"><h4>${index + 1}. ${e(row.date)}</h4>${row.marks
+          .map(
+            (mark) =>
+              `<p>标记「${e(mark.pen)}」 ${mark.layers} 层 · ${mark.added ? `补充 ${mark.added} 层` : "已满足，跳过"}</p>`,
+          )
+          .join("")}${row.events
+          .map(
+            (event) =>
+              `<div class="import-event" style="--note-color:${e(event.color)}"><span>${event.added ? "新增事件" : "重复事件，跳过"}</span><p>${e(event.text)}</p></div>`,
+          )
+          .join("")}</article>`,
+    )
+    .join("");
+  $("import-preview").hidden = false;
+  $("import-status").textContent = result.summary.changed_targets
+    ? "请核对日期和内容，确认后一次性保存"
+    : "全部内容已存在，本次不会新增记录";
+}
+$("open-import").onclick = () => {
+  if (!data) return;
+  if (pending) return toast("正在保存，请稍候");
+  hideTooltip();
+  renderImportTemplate();
+  importDialog.showModal();
+};
+function closeImport() {
+  if (importBusy) return;
+  // Keep the pasted draft and preview when returning to the calendar.
+  importDialog.close();
+}
+$("close-import").onclick = closeImport;
+importDialog.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  closeImport();
+});
+$("import-text").addEventListener("input", () => {
+  importDirty = Boolean($("import-text").value.trim());
+  invalidateImportPreview();
+  $("import-error").hidden = true;
+  $("import-result").hidden = true;
+});
+$("refresh-import").onclick = async () => {
+  if (importBusy) return;
+  importBusy = true;
+  invalidateImportPreview();
+  $("import-error").hidden = true;
+  $("import-result").hidden = true;
+  try {
+    if (await loadMonth(data.year, data.month)) {
+      $("import-status").textContent = "请重新校验预览后再导入";
+    } else {
+      importError($("error-message").textContent || "刷新失败，请重试");
+    }
+  } finally {
+    importBusy = false;
+    updateImportControls();
+  }
+};
+$("import-form").onsubmit = async (event) => {
+  event.preventDefault();
+  if (importBusy) return;
+  importBusy = true;
+  invalidateImportPreview();
+  $("import-error").hidden = true;
+  $("import-result").hidden = true;
+  $("import-status").textContent = "正在校验…";
+  try {
+    await queue;
+    const source = $("import-text").value;
+    const result = await bridge.apiPost("import/preview", {
+      text: source,
+      revision: data.revision,
+    });
+    if (result.revision !== data.revision)
+      throw new Error("日历数据已变化，请重新预览");
+    importPreview = { ...result, text: source };
+    renderImportPreview(result);
+  } catch (error) {
+    importError(error.message || "校验失败，请重试");
+  } finally {
+    importBusy = false;
+    updateImportControls();
+  }
+};
+$("commit-import").onclick = async () => {
+  if (importBusy || !importPreview) return;
+  const preview = importPreview;
+  importBusy = true;
+  updateImportControls();
+  $("import-error").hidden = true;
+  $("import-status").textContent = "正在导入…";
+  try {
+    const result = await mutate(
+      { text: preview.text },
+      { path: "import", revision: preview.revision },
+    );
+    invalidateImportPreview();
+    importDirty = false;
+    $("import-result").textContent =
+      `导入完成。${importSummary(result.summary)}。可关闭窗口查看对应年月日。`;
+    $("import-result").hidden = false;
+    $("import-status").textContent = "已保存，可继续粘贴下一批文本";
+  } catch (error) {
+    invalidateImportPreview();
+    importError(
+      error.message || "未收到保存结果，请刷新后重新预览；重复内容会自动跳过",
+    );
+  } finally {
+    importBusy = false;
+    updateImportControls();
+  }
+};
+$("copy-import-prompt").onclick = async () => {
+  const prompt = $("import-prompt");
+  try {
+    await navigator.clipboard.writeText(prompt.value);
+    toast("已复制，补充日期范围和要求后交给 AI");
+  } catch {
+    $("import-template-details").open = true;
+    prompt.focus();
+    prompt.select();
+    toast("提示词已选中，请手动复制（Ctrl+C 或长按复制）");
+  }
+};
+$("download-import-template").onclick = () => {
+  const url = URL.createObjectURL(
+    new Blob([JSON.stringify(importTemplate(), null, 2)], {
+      type: "application/json;charset=utf-8",
+    }),
+  );
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "历记-批量导入模板.json";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+};
+
 function hideTooltip() {
   $("tooltip").hidden = true;
 }
@@ -791,7 +1011,14 @@ document.addEventListener("focusin", (ev) => {
 document.addEventListener("focusout", hideTooltip);
 document.addEventListener("scroll", hideTooltip, true);
 window.addEventListener("beforeunload", (ev) => {
-  if (pending || noteDirty || targetDirty || settingsDirty) {
+  if (
+    pending ||
+    noteDirty ||
+    targetDirty ||
+    settingsDirty ||
+    importDirty ||
+    importBusy
+  ) {
     ev.preventDefault();
     ev.returnValue = "";
   }

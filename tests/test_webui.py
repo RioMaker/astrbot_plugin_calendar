@@ -3,6 +3,7 @@
 These do not claim to exercise a live AstrBot dashboard or OneBot deployment.
 """
 
+import json
 import os
 import threading
 from pathlib import Path
@@ -378,3 +379,199 @@ def test_astrbot_sandbox_without_native_modals_or_same_origin(calendar_page):
     with page.expect_download() as download:
         frame.locator("#export").click()
     assert download.value.suggested_filename.endswith(".json")
+    frame.locator("#open-import").click()
+    frame.locator("#import-template-details summary").click()
+    with page.expect_download() as template_download:
+        frame.locator("#download-import-template").click()
+    assert "批量导入模板" in template_download.value.suggested_filename
+    # Clipboard permission is commonly unavailable inside AstrBot's opaque iframe.
+    frame.locator("#copy-import-prompt").click()
+    expect(frame.locator("#toast")).to_contain_text("手动复制")
+    assert (
+        frame.locator("#import-prompt").evaluate(
+            "node => node.selectionEnd - node.selectionStart"
+        )
+        > 100
+    )
+    frame.locator("#import-template-details summary").click()
+    frame.locator("#import-text").fill(import_source())
+    frame.locator("#preview-import").click()
+    expect(frame.locator("#import-preview")).to_be_visible()
+    frame.locator("#commit-import").click()
+    expect(frame.locator("#import-result")).to_contain_text("导入完成")
+    frame.locator("#close-import").click()
+    expect(day(frame).locator(".mark-shape")).to_have_count(2)
+
+
+def import_source():
+    return json.dumps(
+        {
+            "format": "liji-import-v1",
+            "entries": [
+                {
+                    "date": "2026-11-11",
+                    "marks": [{"pen": "得财", "layers": 2}],
+                    "events": [
+                        {
+                            "text": "计划：复盘 <script>window.importExecuted=true</script>"
+                        }
+                    ],
+                },
+                {
+                    "date": "2026-12-01",
+                    "marks": [{"pen": "破财"}],
+                    "events": [{"text": "计划：整理账单", "color": "#aabbcc"}],
+                },
+            ],
+        },
+        ensure_ascii=False,
+    )
+
+
+def test_batch_import_preview_repeat_cross_month_and_edit_invalidation(calendar_page):
+    page = calendar_page
+    page.locator("#open-import").click()
+    page.locator("#import-text").fill("```json\n" + import_source() + "\n```")
+    page.locator("#preview-import").click()
+    expect(page.locator("#import-summary")).to_contain_text("新增 2 个事件")
+    expect(page.locator("#import-rows")).to_contain_text("2026-12-01")
+    # Preview alone has no effect on the visible calendar or storage.
+    expect(day(page).locator(".mark-shape")).to_have_count(0)
+    assert page.evaluate("window.importExecuted") is None
+    page.locator("#import-text").fill(import_source() + " ")
+    expect(page.locator("#commit-import")).to_be_disabled()
+    expect(page.locator("#import-preview")).not_to_be_visible()
+    page.locator("#preview-import").click()
+    expect(page.locator("#commit-import")).to_be_enabled()
+    page.locator("#commit-import").click()
+    expect(page.locator("#import-result")).to_contain_text("导入完成")
+    page.locator("#preview-import").click()
+    expect(page.locator("#import-summary")).to_contain_text("跳过 4 个")
+    page.locator("#commit-import").click()
+    expect(page.locator("#import-result")).to_contain_text("新增 0 个事件")
+    page.locator("#close-import").click()
+    expect(day(page).locator(".mark-shape")).to_have_count(2)
+    day(page).click()
+    expect(page.locator("#note-list .note-card")).to_have_count(1)
+    close_detail(page)
+    jump(page, 2026, 12)
+    expect(day(page, "2026-12-01").locator(".mark-shape")).to_have_count(1)
+    page.reload()
+    jump(page, 2026, 12)
+    day(page, "2026-12-01").click()
+    expect(page.locator("#note-list")).to_contain_text("计划：整理账单")
+
+
+def test_batch_import_errors_preserve_text_and_no_partial_changes(calendar_page):
+    page = calendar_page
+    page.locator("#open-import").click()
+    invalid = import_source().replace("2026-12-01", "2026-02-30")
+    page.locator("#import-text").fill(invalid)
+    page.locator("#preview-import").click()
+    expect(page.locator("#import-error")).to_contain_text("第 2 条记录")
+    expect(page.locator("#commit-import")).to_be_disabled()
+    expect(page.locator("#import-text")).to_have_value(invalid)
+    page.locator("#close-import").click()
+    expect(day(page).locator(".mark-shape")).to_have_count(0)
+    page.locator("#open-import").click()
+    expect(page.locator("#import-text")).to_have_value(invalid)
+    page.locator("#import-text").fill(import_source().replace("得财", "不存在的画笔"))
+    page.locator("#preview-import").click()
+    expect(page.locator("#import-error")).to_contain_text("不存在")
+    page.route("**/api/month?*", lambda route: route.abort(), times=1)
+    page.locator("#refresh-import").click()
+    expect(page.locator("#import-error")).to_contain_text("Failed to fetch")
+    expect(page.locator("#commit-import")).to_be_disabled()
+
+
+def test_batch_import_stale_preview_conflict_refresh_and_retry(calendar_page):
+    page = calendar_page
+    other = page.context.new_page()
+    other.goto(page.url)
+    expect(other.locator("#days td")).to_have_count(42)
+    jump(other, 2026, 11)
+    page.locator("#open-import").click()
+    page.locator("#import-text").fill(import_source())
+    page.locator("#preview-import").click()
+    expect(page.locator("#commit-import")).to_be_enabled()
+    other.locator('#pens button[data-pen="expense"]').click()
+    day(other).click()
+    saved(other)
+    page.locator("#commit-import").click()
+    expect(page.locator("#import-error")).to_contain_text("另一页面更新")
+    expect(page.locator("#import-text")).to_have_value(import_source())
+    expect(page.locator("#commit-import")).to_be_disabled()
+    page.locator("#refresh-import").click()
+    expect(page.locator("#import-error")).not_to_be_visible()
+    page.locator("#preview-import").click()
+    expect(page.locator("#commit-import")).to_be_enabled()
+    page.locator("#commit-import").click()
+    expect(page.locator("#import-result")).to_contain_text("导入完成")
+    page.locator("#close-import").click()
+    expect(day(page).locator(".mark-shape")).to_have_count(3)
+    other.close()
+
+
+def test_batch_import_lost_response_can_retry_without_duplicates(calendar_page):
+    page = calendar_page
+    page.locator("#open-import").click()
+    page.locator("#import-text").fill(import_source())
+    page.locator("#preview-import").click()
+    expect(page.locator("#commit-import")).to_be_enabled()
+
+    def lose_response(route):
+        route.fetch()
+        route.abort()
+
+    page.route("**/api/import", lose_response, times=1)
+    page.locator("#commit-import").click()
+    expect(page.locator("#import-error")).to_be_visible()
+    expect(page.locator("#import-text")).to_have_value(import_source())
+    page.locator("#refresh-import").click()
+    page.locator("#preview-import").click()
+    expect(page.locator("#import-summary")).to_contain_text("跳过 4 个")
+    page.locator("#commit-import").click()
+    expect(page.locator("#import-result")).to_contain_text("新增 0 个事件")
+    page.locator("#close-import").click()
+    day(page).click()
+    expect(page.locator("#note-list .note-card")).to_have_count(1)
+
+
+def test_batch_template_uses_current_catalog_and_mobile_preview(
+    calendar_page, tmp_path
+):
+    page = calendar_page
+    page.locator("#manage-pens").click()
+    page.locator('[data-edit-pen="income"]').click()
+    page.locator("#pen-name").fill("重要安排")
+    page.locator('#pen-form button[type="submit"]').click()
+    saved(page)
+    page.locator("#close-settings").click()
+    page.locator("#open-import").click()
+    page.locator("#import-template-details summary").click()
+    prompt = page.locator("#import-prompt").input_value()
+    assert "重要安排" in prompt and '"得财"' not in prompt
+    with page.expect_download() as download:
+        page.locator("#download-import-template").click()
+    path = tmp_path / "template.json"
+    download.value.save_as(path)
+    template = path.read_text(encoding="utf-8")
+    assert json.loads(template)["entries"][0]["marks"][0]["pen"] == "重要安排"
+    page.locator("#import-template-details summary").click()
+    page.locator("#import-text").fill(template)
+    page.locator("#preview-import").click()
+    expect(page.locator("#commit-import")).to_be_enabled()
+    out = ROOT / ".preview"
+    out.mkdir(exist_ok=True)
+    page.locator("#import-dialog").screenshot(path=str(out / "import-desktop.png"))
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    assert page.locator("#import-dialog").evaluate(
+        "node => node.scrollWidth <= node.clientWidth"
+    )
+    page.locator("#commit-import").scroll_into_view_if_needed()
+    page.screenshot(path=str(out / "import-mobile.png"))
+    page.evaluate("document.documentElement.dataset.theme='dark'")
+    page.screenshot(path=str(out / "import-dark.png"), animations="disabled")
+    page.locator("#commit-import").click()
+    expect(page.locator("#import-result")).to_contain_text("导入完成")

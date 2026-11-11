@@ -11,6 +11,7 @@ from astrbot.api.web import error_response, json_response, request
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
 from .core.calendar import CalendarService, date_info, today
+from .core.importing import MAX_REQUEST_BYTES, CalendarImporter
 from .core.store import CalendarStore, ConflictError, ValidationError, target_key
 
 PLUGIN_NAME = "astrbot_plugin_calendar"
@@ -22,11 +23,14 @@ class CalendarPlugin(Star):
         self.config = config
         self.store = None
         self.service = None
+        self.importer = None
         self._init_lock = asyncio.Lock()
         for path, handler, methods, description in [
             ("month", self.api_month, ["GET"], "读取标准月历"),
             ("mutate", self.api_mutate, ["POST"], "保存日历标记、备注及状态"),
             ("export", self.api_export, ["GET"], "导出日历记录"),
+            ("import/preview", self.api_import_preview, ["POST"], "预览批量导入"),
+            ("import", self.api_import, ["POST"], "批量导入标记与事件"),
         ]:
             context.register_web_api(
                 f"/{PLUGIN_NAME}/{path}", handler, methods, description
@@ -43,6 +47,7 @@ class CalendarPlugin(Star):
                 )
                 self.store = await asyncio.to_thread(CalendarStore, path)
                 self.service = CalendarService(self.store)
+                self.importer = CalendarImporter(self.store)
 
     async def _run(self, operation, *args):
         try:
@@ -72,6 +77,18 @@ class CalendarPlugin(Star):
 
     async def api_export(self):
         return await self._run(lambda: self.store.export())
+
+    async def _import_request(self, *, commit):
+        if len(await request.body()) > MAX_REQUEST_BYTES:
+            return error_response("请求内容过大，请分批导入", status_code=413)
+        payload = await request.json(default=None)
+        return await self._run(lambda: self.importer.run(payload, commit=commit))
+
+    async def api_import_preview(self):
+        return await self._import_request(commit=False)
+
+    async def api_import(self):
+        return await self._import_request(commit=True)
 
     @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("历记")

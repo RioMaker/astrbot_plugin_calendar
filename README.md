@@ -1,6 +1,6 @@
 # 历记 · AstrBot 日历插件
 
-维护一本有标记、有备注、可扩展状态的标准日历。目录及插件标识为 `astrbot_plugin_calendar`，初始版本 `0.1.0`。
+维护一本有标记、有备注、可扩展状态的标准日历。目录及插件标识为 `astrbot_plugin_calendar`，当前版本 `0.2.0`。
 
 ## 打开日历
 
@@ -28,10 +28,52 @@
 | 点击备注条 | 打开对应备注编辑；手机端用点击查看详情 |
 | 日历设置 → 扩展字段 | 创建文本、是／否或下拉状态字段 |
 | 日期详情 → 放假 / 上班状态 | 手动覆盖安排；选「采用日期库安排」可恢复 |
+| 批量导入 | 粘贴 AI 生成的 JSON，预览并一次性导入指定年月日的标记与事件 |
 
 每条备注可单独设色；默认备注色也可修改。新增、编辑、删除均在后台 SQLite 事务中保存，刷新页面或重载插件后仍保留。备注和条件需要点击各自的保存按钮；关闭时会提醒未保存输入。画笔操作直接保存，页面右侧显示保存状态。
 
 日历始终为**六行七列的标准月历**，相邻月份的补位日期显示为浅色。可以直接跳转年月，选择周一或周日作为一周开始。手机保留同一周历结构，通过日历内部横向滚动查看，不转为列表或卡片流。
+
+## AI 文本批量导入
+
+1. 点击页面右上角 **批量导入 → 格式模板与 AI 提示词**。
+2. 复制 AI 提示词，填入所需的日期范围、标记规则和事件内容，交给你使用的 AI。页面模板会自动列出当前画笔名称、形状、颜色和默认备注色；需要新画笔时请先在日历中创建。
+3. 将 AI 生成的整个 JSON 粘贴到“AI 生成的导入文本”，也支持包在完整的 `json` 代码块中。
+4. 点击 **校验并预览**，逐条核对日期、标记层数和事件正文。页面显示新增和跳过数量；发现错误会指出记录序号，JSON 语法错误会指出行列。
+5. 点击 **确认导入**，整批一次性保存。关闭窗口即可在对应年月日看到标记和事件备注，跨月内容也会保存。
+
+可直接使用的文件：[JSON 格式模板](docs/import-template.json)、[给 AI 的提示词](docs/ai-import-prompt.txt)。这些文件以默认画笔为例；修改过画笔时，以页面动态模板为准。模板内容是示例计划，导入前应替换。
+
+```json
+{
+  "format": "liji-import-v1",
+  "entries": [
+    {
+      "date": "2026-11-15",
+      "marks": [{ "pen": "得财", "layers": 2 }],
+      "events": [{ "text": "计划：核对本月收入", "color": "#658773" }]
+    },
+    {
+      "date": "2026-11-30",
+      "events": [{ "text": "计划：月末复盘" }]
+    }
+  ]
+}
+```
+
+| 字段 | 格式 |
+| --- | --- |
+| `format` | 固定为 `liji-import-v1` |
+| `entries` | 1–500 条记录；整段文本最多 512 KiB（UTF-8） |
+| `date` | 有效公历日期 `YYYY-MM-DD`，也支持 `YYYY`、`YYYY-MM`；1901–2099 年，三种层级各自独立 |
+| `marks` | 可省略；最多四种不同画笔。`pen` 必须是现有画笔名称，`layers` 为整数 1–3，省略为 1 |
+| `events` | 可省略；事件作为备注保存，`text` 为 1–4000 字，`color` 可省略或为 `#RRGGBB`；同一年月日合计最多 50 条备注 |
+
+每条至少包含一个标记或事件，不接受未知字段。同一日期可以在多条记录中出现，也可以在 `events` 内一次填写多条事件。正文换行使用 JSON 的 `\n`，正文中的英文双引号使用 `\"`。
+
+导入采用**追加、补足与去重**：标记补到指定层数，已有更高层数保持不变；同一日期、正文和颜色完全相同的事件跳过（包括同批重复记录），其它事件追加。省略事件颜色时按导入时的默认备注色判定；若需要长期重复导入，建议明确填写颜色。需要区分的同名事件请在正文写明时间或编号。原有画笔、其它备注、状态和手动节日均保留。
+
+预览不会写入数据库；非法日期、未知画笔、超出容量等错误会阻止整批导入。另一页面修改过数据时，需要“刷新数据，保留文本”并重新预览。网络中断后同样先刷新、再预览，重复内容会自动跳过。关闭导入窗口会在本页保留文本，刷新或离开页面前请自行保存文本。这个功能由用户粘贴外部 AI 的结果，不调用模型、不需要 API 密钥，也不自动安排提醒。
 
 ## 日期、五行与节假日口径
 
@@ -73,7 +115,7 @@ data/plugin_data/astrbot_plugin_calendar/calendar.sqlite3
 
 数据目录通过框架 API 获取，不依赖工作目录，也不把记录写进插件源码目录。SQLite 使用事务与 WAL；数据库 schema 版本为 1。遇到比当前插件更新的数据库版本会停止初始化，保留原文件。
 
-「导出记录」下载 JSON，包含画笔、字段、设置和全部年月日记录，不包含可重新计算的日历基础数据。当前版本提供 JSON 导出，尚无页面导入功能。完整迁移可在停止 AstrBot 后备份、恢复整个插件数据目录；不要只复制仍在写入的单个 SQLite 文件。
+「导出记录」下载 JSON，包含画笔、字段、设置和全部年月日记录，不包含可重新计算的日历基础数据。批量导入使用上述独立的 `liji-import-v1` 文本格式，不接受 `liji-calendar` 全量导出文件。完整迁移可在停止 AstrBot 后备份、恢复整个插件数据目录；不要只复制仍在写入的单个 SQLite 文件。
 
 所有修改携带页面读取时的数据版本，服务端在同一事务里核对。如果另一页面已经更新，本次写入返回冲突，不覆盖较新的记录。输入保留在当前表单中，可在窗口内点击「刷新数据，保留输入」，核对最新记录后再次保存。
 
@@ -105,15 +147,15 @@ python scripts/preview.py --port 8765
 
 验证涵盖日期边界、春节／立春、节日／放假／补班、SQLite 持久化、并发冲突、备注与扩展状态，以及实际浏览器中的绘制、擦除、备注悬浮、跨月、刷新、导出和手机布局。额外模拟 AstrBot 的 `allow-scripts allow-forms allow-downloads` iframe 限制，验证旧版 Bridge 别名、页内确认、保存及下载。AstrBot 接口和 Bridge 宿主仍为本地合约模拟；**不代表真实 AstrBot / QQ 集成或线上验证通过**。
 
-2026-11-11 本地结果：65 项 Python 测试通过（含 10 项真实浏览器场景），3 项 Node 渲染回归测试通过；Ruff、Prettier、JavaScript 语法检查通过。已查看桌面、手机、详情窗口及深色主题截图。测试环境为 Windows、Python 3.10.9、Chrome 157；尚未在 AstrBot 实例的 Python 3.12+ 环境中联调。
+2026-11-11（0.2.0）本地结果：116 项 Python 测试通过（含 15 项真实浏览器场景），3 项 Node 渲染回归测试通过；Ruff、Prettier、JavaScript 语法检查通过。批量导入覆盖格式与容量校验、错误不写入、存储故障整批回滚、重复导入、跨年月记录、并发冲突、响应丢失后的重试、动态模板下载、受限 iframe 与手机布局；已查看导入窗口的桌面、手机和深色主题截图。本地测试使用 Windows / Python 3.10 环境，尚未在真实 AstrBot 实例的 Python 3.12+ 环境中联调。
 
 ## 接口与参考来源
 
-前端使用 `pages/calendar/index.html`，兼容 `AstrBotPluginView` 和 `AstrBotPluginPage` Bridge；后台注册 `/{plugin_name}/month`、`mutate`、`export`。普通 JSON 读写通过 `astrbot.api.web` 返回，访问身份由 AstrBot Dashboard 管理。
+前端使用 `pages/calendar/index.html`，兼容 `AstrBotPluginView` 和 `AstrBotPluginPage` Bridge；后台注册 `/{plugin_name}/month`、`mutate`、`export`、`import/preview`、`import`。普通 JSON 读写通过 `astrbot.api.web` 返回，访问身份由 AstrBot Dashboard 管理。两个导入接口均为 POST，请求包含 `revision`（整数）和 `text`（上述 JSON 原文字符串），请求体最多 2 MiB；导入文本本身限制为 512 KiB。导入事务为每次新增笔画保留绘制顺序，因此版本号单次可能递增多次，客户端应始终使用响应中的版本号。
 
 - [AstrBot 官方可视化页面与 Bridge 文档](https://docs.astrbot.app/dev/star/guides/plugin-pages.html)（2026-11-11 核对；当前文档推荐 views，并兼容 pages）。
 - [lunar-python](https://github.com/6tail/lunar-python)：农历、节日、节气和干支计算，MIT 许可，作为 Python 依赖使用。
 - [chinese-calendar](https://github.com/liriansu-opus/chinese-calendar)：放假调休数据，MIT 许可，作为 Python 依赖使用。
 - [国务院办公厅关于 2026 年部分节假日安排的通知](https://www.beijing.gov.cn/fuwu/bmfw/sy/jrts/202511/t20251104_4258838.html)：核对 2026 春节休假与补班测试样例。
 
-当前仓库尚无远程地址，`metadata.yaml` 的 `repo` 留空。源码及资源可在本地继续维护；没有创建远程、推送或部署。
+项目仓库：[RioMaker/astrbot_plugin_calendar](https://github.com/RioMaker/astrbot_plugin_calendar)。

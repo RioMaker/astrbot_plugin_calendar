@@ -98,6 +98,8 @@ def test_registered_routes_and_data_live_outside_plugin(plugin):
         "/astrbot_plugin_calendar/month",
         "/astrbot_plugin_calendar/mutate",
         "/astrbot_plugin_calendar/export",
+        "/astrbot_plugin_calendar/import/preview",
+        "/astrbot_plugin_calendar/import",
     }
     request.query = {"year": "2026", "month": "11"}
     result = run(instance.api_month())
@@ -141,6 +143,39 @@ def test_invalid_date_and_storage_failure_are_controlled(plugin):
     result = run(instance._run(failing))
     assert result["code"] == 500
     assert "private diagnostic" not in result["message"]
+
+
+def test_import_preview_commit_conflict_invalid_and_body_limit(plugin):
+    instance, request, _, _ = plugin
+    request.payload = {
+        "revision": 0,
+        "text": json.dumps(
+            {
+                "format": "liji-import-v1",
+                "entries": [
+                    {
+                        "date": "2026-11-11",
+                        "marks": [{"pen": "得财", "layers": 2}],
+                        "events": [{"text": "计划：复盘"}],
+                    }
+                ],
+            }
+        ),
+    }
+    request.raw = json.dumps(request.payload).encode()
+    preview = run(instance.api_import_preview())
+    assert preview["code"] == 200
+    assert preview["body"]["summary"]["events_added"] == 1
+    assert instance.store.export()["items"] == {}
+    assert run(instance.api_import())["code"] == 200
+    assert run(instance.api_import())["code"] == 409
+    assert run(instance.api_import_preview())["code"] == 409
+    request.payload = None
+    assert run(instance.api_import())["code"] == 400
+    assert run(instance.api_import_preview())["code"] == 400
+    request.raw = b"x" * (2 * 1024 * 1024 + 1)
+    assert run(instance.api_import())["code"] == 413
+    assert run(instance.api_import_preview())["code"] == 413
 
 
 def test_initialization_is_safe_under_parallel_requests(plugin):

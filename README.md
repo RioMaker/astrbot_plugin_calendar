@@ -1,16 +1,41 @@
 # 历记 · AstrBot 日历插件
 
-维护一本有标记、有备注、可扩展状态的标准日历。目录及插件标识为 `astrbot_plugin_calendar`，当前版本 `0.2.1`。
+维护一本有标记、有备注、可扩展状态的标准日历。目录及插件标识为 `astrbot_plugin_calendar`，当前版本 `0.3.0`。
 
 ## 打开日历
 
 需要 **AstrBot 4.29.4 或更新的兼容 4.x 版本**，以及该版本要求的 Python 环境。
 
 1. 将本插件放在 AstrBot 的 `data/plugins/astrbot_plugin_calendar/` 下，安装 `requirements.txt` 中的依赖，并加载插件。
-2. 在 **AstrBot WebUI → 插件 → 历记 → 可视化页面 → calendar** 打开日历。较早的界面可能将该入口称为 Pages。
-3. 管理员可发送 `/历记` 查看入口说明，或 `/历记 2026-02-17` 查询日期基础信息。指令不会发送私人备注；可在插件常规配置中关闭。
+2. 在插件常规配置中填写 **管理员 QQ（`admin_qq`）**，保存后重载插件；这是管理页面同步到的账户。
+3. 在 **AstrBot WebUI → 插件 → 历记 → 可视化页面 → calendar** 打开该管理员的个人日历。较早的界面可能将该入口称为 Pages。
+4. 在 QQ 发送 `/日历` 获取自己的当月图片，或用下面的指令管理标记。管理员仍可使用 `/历记` 查看入口说明、`/历记 2026-02-17` 查询日期基础信息。
 
-当前版本是一份由已登录 Dashboard 的管理用户共同维护的日历，按实例保存。没有群聊隔离、个人日历或自动发群功能。页面通过 AstrBot 官方 Bridge 访问后台，不另开公网管理端口，也不需要单独设置页面密码。
+每个 QQ 的标记、画笔、事件与设置独立保存。同一 QQ 在不同群聊或私聊中使用同一份日历；指令回复发到触发指令的会话。管理页面与配置中的管理员 QQ 共用数据，双方修改后，另一端重新查询或刷新即可看到。页面通过 AstrBot 官方 Bridge 访问后台，由 Dashboard 负责登录验证。
+
+首次填写管理员 QQ 会将旧版管理页面中的全部记录永久绑定给该 QQ，无需重新导入。以后更换管理员 QQ，只切换页面查看的个人账户，不搬移旧数据；原管理员仍能在 QQ 中访问自己的记录。绑定后清空配置会暂停访问，直到再次填写有效号码。尚未首次绑定时，原有管理页面仍可使用，QQ 指令会提示先完成配置。
+
+## QQ 指令与 AI 工具
+
+QQ 接入采用 **OneBot v11（NapCat / Lagrange 等）**。通过消息事件的真实发送者 QQ 识别本人，不接收用户或 AI 提供的账户参数。QQ 官方机器人使用 OpenID，无法直接与真实 QQ 号码对应，当前不开放该适配器及其他平台的个人日历功能。
+
+| 指令 | 效果 |
+| --- | --- |
+| `/日历` | 返回本人当月的一页月历 PNG，包含农历、日干支、节日、个人标记与注释摘要；月份按北京时间确定 |
+| `/标记 20261112 红色` | 给指定公历日期添加红色标记，注释可省略 |
+| `/标记 2026-11-12 红色 奖金到账` | 添加标记及注释，支持空格和换行 |
+| `/标记` | 列出本人全部标记，包含 ID、日期、颜色、层数和注释；较长清单分段发送 |
+| `/修改标记 ID 新注释内容` | 替换该标记注释，日期、颜色和层数保持不变 |
+| `/修改标记 ID --清空` | 清空注释，保留标记 |
+| `/删除标记 ID` | 删除整条标记的全部层数及注释，保留同日其他颜色、事件和状态 |
+
+支持 `YYYYMMDD` 或 `YYYY-MM-DD` 的有效公历日期（1901–2099 年）；颜色支持红、黑、蓝、绿、黄、橙、紫、粉、灰、白及其“色”后缀、英文名称、`#RRGGBB`，也接受已有画笔名称。颜色优先匹配现有画笔，不存在时新建圆形画笔；同一日期同一画笔使用一个稳定 ID，重复添加增加一层、最多三层，新注释追加到已有注释中，重复的单行注释不追加。注释总长最多 4000 字。需要改色时，删除该标记后重新添加。
+
+标记继续显示在日期旁，多种颜色独立共存；层数用 1–3 显示。管理页面的日期详情会显示同一 ID、颜色与注释，并提供编辑注释、整条删除和逐层擦除。图片只展示注释摘要，完整标记注释通过 `/标记` 查看，事件正文在管理页查看。
+
+插件注册 `calendar_show_month`、`calendar_list_marks`、`calendar_add_mark`、`calendar_update_mark`、`calendar_delete_mark` 五个 AstrBot AI 工具，可直接对 AI 说“给 2026 年 11 月 12 日添加红色标记，注释奖金到账”。所有工具和 QQ 指令共用校验与存储，AI 不能指定其他用户，也不能用别人的 ID 修改或删除记录。可通过 `enable_ai_tools` 关闭 AI 工具访问；关闭 `enable_qq_commands` 会同时暂停个人指令和 AI 工具。使用 AstrBot 已配置的模型，无需额外模型密钥；是否自动选择调用工具取决于模型及 AstrBot 的工具启用设置。
+
+图片使用 Pillow 和插件附带的开源中文字体在服务器本地生成，无需浏览器或外部文转图服务；等待发送完成后删除临时图片。字体来源与授权见 [字体说明](assets/fonts/README.md)。
 
 ## 操作方式
 
@@ -96,7 +121,7 @@
 画笔目录：名称 + 颜色 + 形状
 字段目录：名称 + 类型 + 可选状态
 每个日期键：
-  marks      画笔 ID、层数、实际绘制顺序
+  marks      稳定标记 ID、画笔 ID、层数、实际绘制顺序、注释
   notes      多条备注，每条包含稳定 ID、正文和颜色
   values     扩展字段 ID → 状态值（未设置与「否」不同）
   festivals  手动追加节日（仅日）
@@ -112,14 +137,18 @@
 数据保存在 AstrBot 的：
 
 ```text
-data/plugin_data/astrbot_plugin_calendar/calendar.sqlite3
+data/plugin_data/astrbot_plugin_calendar/
+  calendar.sqlite3         旧版日历，永久属于首次绑定的管理员 QQ
+  accounts.sqlite3         首次绑定记录
+  users/<账户摘要>.sqlite3  其他 QQ 的独立日历
+  images/                  发送期间使用的临时 PNG
 ```
 
-数据目录通过框架 API 获取，不依赖工作目录，也不把记录写进插件源码目录。SQLite 使用事务与 WAL；数据库 schema 版本为 1。遇到比当前插件更新的数据库版本会停止初始化，保留原文件。
+数据目录通过框架 API 获取，不依赖工作目录，也不把记录写进插件源码目录。SQLite 使用事务与 WAL；数据库 schema 版本为 2。从版本 1 升级时，先创建 `calendar.v1-backup-*.sqlite3` 并校验完整性，再为旧标记补充稳定 ID 和空注释，保留颜色、层数、事件等内容。遇到比当前插件更新的数据库版本会停止初始化，保留原文件。
 
 「导出记录」下载 JSON，包含画笔、字段、设置和全部年月日记录，不包含可重新计算的日历基础数据。批量导入使用上述独立的 `liji-import-v1` 文本格式，不接受 `liji-calendar` 全量导出文件。完整迁移可在停止 AstrBot 后备份、恢复整个插件数据目录；不要只复制仍在写入的单个 SQLite 文件。
 
-所有修改携带页面读取时的数据版本，服务端在同一事务里核对。如果另一页面已经更新，本次写入返回冲突，不覆盖较新的记录。输入保留在当前表单中，可在窗口内点击「刷新数据，保留输入」，核对最新记录后再次保存。
+所有修改携带页面读取时的数据版本和账户标识，服务端在同一事务里核对版本。如果 QQ、AI 或另一页面已经更新，本次写入返回冲突，不覆盖较新的记录。输入保留在当前表单中，可在窗口内点击「刷新数据，保留输入」，核对最新记录后再次保存。切换管理员 QQ 后，旧页面的保存、导入和导出会拒绝执行；复制未保存的输入后重新打开页面，以避免跨账户写入。
 
 快速连续添加标记按顺序提交。网络失败后的未完成操作不会自动重放；请刷新核对当前标记再操作，避免重复增加层数。后台错误不会把异常详情或备注内容返回给客户端。
 
@@ -149,13 +178,14 @@ python scripts/preview.py --port 8765
 
 验证涵盖日期边界、春节／立春、节日／放假／补班、SQLite 持久化、并发冲突、备注与扩展状态，以及实际浏览器中的绘制、擦除、备注悬浮、跨月、刷新、导出和手机布局。额外模拟 AstrBot 的 `allow-scripts allow-forms allow-downloads` iframe 限制，验证旧版 Bridge 别名、页内确认、保存及下载。AstrBot 接口和 Bridge 宿主仍为本地合约模拟；**不代表真实 AstrBot / QQ 集成或线上验证通过**。
 
-2026-11-11（0.2.1）本地结果：117 项 Python 测试通过（含 16 项真实浏览器场景），4 项 Node 渲染回归测试通过；Ruff、Prettier、JavaScript 语法检查通过。标记布局验证四种画笔同时显示于年月日，在 1440、980、390、320 像素宽度下不覆盖数字、不相互重合，与今天／节假日提示分开，并验证独立擦除。批量导入覆盖格式与容量校验、错误不写入、存储故障整批回滚、重复导入、跨年月记录、并发冲突、响应丢失后的重试、动态模板下载及受限 iframe；已查看桌面、手机和深色主题截图。本地测试使用 Windows / Python 3.10 环境，尚未在真实 AstrBot 实例的 Python 3.12+ 环境中联调。
+2026-11-11（0.3.0）本地结果：154 项 Python 测试通过（含 18 项真实浏览器场景），4 项 Node 渲染回归测试通过；Ruff、Prettier、JavaScript 语法检查通过。新增验证覆盖 QQ 指令与 AI 工具、跨用户 ID 隔离、管理员切换和旧页面保护、旧库备份升级、图片发送失败清理、标记注释冲突恢复、完整长清单分段；使用已读取的 AstrBot 官方命令解析源码重放 6 种指令格式通过。已查看月历 PNG 及桌面、390 / 320 像素注释弹窗截图，保留此前全部导入和不重叠标记布局回归。首轮全量测试有一次浏览器等待保存超时，单独复跑及随后完整回归通过。测试环境为 Windows / Python 3.10 / Pillow 11.2.1，尚未在真实 AstrBot 实例的 Python 3.12+ 环境中进行 QQ / 模型联调。
 
 ## 接口与参考来源
 
-前端使用 `pages/calendar/index.html`，兼容 `AstrBotPluginView` 和 `AstrBotPluginPage` Bridge；后台注册 `/{plugin_name}/month`、`mutate`、`export`、`import/preview`、`import`。普通 JSON 读写通过 `astrbot.api.web` 返回，访问身份由 AstrBot Dashboard 管理。两个导入接口均为 POST，请求包含 `revision`（整数）和 `text`（上述 JSON 原文字符串），请求体最多 2 MiB；导入文本本身限制为 512 KiB。导入事务为每次新增笔画保留绘制顺序，因此版本号单次可能递增多次，客户端应始终使用响应中的版本号。
+前端使用 `pages/calendar/index.html`，兼容 `AstrBotPluginView` 和 `AstrBotPluginPage` Bridge；后台注册 `/{plugin_name}/month`、`mutate`、`export`、`import/preview`、`import`。普通 JSON 读写通过 `astrbot.api.web` 返回，访问身份由 AstrBot Dashboard 管理。两个导入接口均为 POST，请求包含 `scope`（月历响应中的当前账户标识）、`revision`（整数）和 `text`（上述 JSON 原文字符串），请求体最多 2 MiB；导入文本本身限制为 512 KiB。`mutate` 同样需要 `scope`，导出 GET 在查询参数中携带 `scope`。导入事务为每次新增笔画保留绘制顺序，因此版本号单次可能递增多次，客户端应始终使用响应中的版本号。
 
 - [AstrBot 官方可视化页面与 Bridge 文档](https://docs.astrbot.app/dev/star/guides/plugin-pages.html)（2026-11-11 核对；当前文档推荐 views，并兼容 pages）。
+- [AstrBot 官方消息与指令文档](https://docs.astrbot.app/dev/star/guides/listen-message-event.html)、[AI 工具文档](https://docs.astrbot.app/dev/star/guides/ai.html)（2026-11-11 核对）。
 - [lunar-python](https://github.com/6tail/lunar-python)：农历、节日、节气和干支计算，MIT 许可，作为 Python 依赖使用。
 - [chinese-calendar](https://github.com/liriansu-opus/chinese-calendar)：放假调休数据，MIT 许可，作为 Python 依赖使用。
 - [国务院办公厅关于 2026 年部分节假日安排的通知](https://www.beijing.gov.cn/fuwu/bmfw/sy/jrts/202511/t20251104_4258838.html)：核对 2026 春节休假与补班测试样例。

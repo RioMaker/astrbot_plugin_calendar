@@ -14,7 +14,7 @@
           <span class="brand-icon" aria-hidden="true">历</span>
           <div>
             <h1 id="book-title">历记</h1>
-            <p>日子有序，记忆有色。</p>
+            <p id="account-label">日子有序，记忆有色。</p>
           </div>
         </div>
         <div class="header-actions">
@@ -435,6 +435,32 @@
         <button id="confirm-no" class="quiet" autofocus>取消</button
         ><button id="confirm-yes" class="primary">确认</button>
       </div>
+    </dialog>
+    <dialog
+      id="mark-dialog"
+      class="confirm-dialog"
+      aria-labelledby="mark-title"
+    >
+      <h2 id="mark-title">编辑标记注释</h2>
+      <p id="mark-info"></p>
+      <form id="mark-form">
+        <label
+          >注释（留空可清除）<textarea
+            id="mark-comment"
+            maxlength="4000"
+            rows="5"
+          ></textarea>
+        </label>
+        <p class="muted">日期、颜色和层数保持不变。</p>
+        <p id="mark-error" role="alert" hidden></p>
+        <div class="form-actions">
+          <button id="refresh-mark" type="button" class="quiet">
+            刷新数据，保留输入
+          </button>
+          <button id="cancel-mark" type="button" class="quiet">取消</button
+          ><button type="submit" class="primary">保存注释</button>
+        </div>
+      </form>
     </dialog>
     <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
     <div id="toast" class="toast" role="status" hidden></div>

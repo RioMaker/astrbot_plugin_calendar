@@ -7,6 +7,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
+from uuid import uuid4
 
 MIN_YEAR, MAX_YEAR = 1901, 2099
 SHAPES = {"circle", "square", "diamond", "triangle"}
@@ -81,8 +82,19 @@ class CalendarStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connection() as db:
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1):
+            if version not in (0, 1, 2):
                 raise RuntimeError("日历数据库版本较新，请升级插件；现有数据未修改")
+            if version == 1:
+                backup = self.path.with_name(
+                    f"{self.path.stem}.v1-backup-{uuid4().hex[:12]}.sqlite3"
+                )
+                with sqlite3.connect(backup) as destination:
+                    db.backup(destination)
+                    if (
+                        destination.execute("PRAGMA integrity_check").fetchone()[0]
+                        != "ok"
+                    ):
+                        raise RuntimeError("日历升级备份校验失败，现有数据未修改")
             db.execute("PRAGMA journal_mode=WAL")
             db.executescript(
                 "CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY CHECK(id=1),"
@@ -93,7 +105,23 @@ class CalendarStore:
                 "INSERT OR IGNORE INTO state VALUES (1, 0, ?)",
                 (dumps(DEFAULT_CATALOG),),
             )
-            db.execute("PRAGMA user_version=1")
+            db.commit()
+            db.execute("BEGIN IMMEDIATE")
+            if version == 1:
+                changed = False
+                for key, raw in db.execute("SELECT target, data FROM items").fetchall():
+                    item = json.loads(raw)
+                    for mark in item["marks"]:
+                        mark.setdefault("id", uuid4().hex[:16])
+                        mark.setdefault("comment", "")
+                    if item["marks"]:
+                        db.execute(
+                            "UPDATE items SET data=? WHERE target=?", (dumps(item), key)
+                        )
+                        changed = True
+                if changed:
+                    db.execute("UPDATE state SET revision=revision+1 WHERE id=1")
+            db.execute("PRAGMA user_version=2")
 
     @contextmanager
     def connection(self):
@@ -154,6 +182,8 @@ class CalendarStore:
             if operation in {
                 "paint",
                 "erase",
+                "mark.save",
+                "mark.delete",
                 "note.save",
                 "note.delete",
                 "target.save",
@@ -200,7 +230,13 @@ class CalendarStore:
                 # Keep multiple pens legible around the same numeral.
                 if len(item["marks"]) >= 4:
                     raise ValidationError("每个数字最多同时使用四支画笔，请先擦除一支")
-                mark = {"pen_id": pen_id, "layers": 0, "order": []}
+                mark = {
+                    "id": uuid4().hex[:16],
+                    "pen_id": pen_id,
+                    "layers": 0,
+                    "order": [],
+                    "comment": "",
+                }
                 item["marks"].append(mark)
             mark["layers"] += 1
             mark["order"].append(revision + 1)
@@ -219,6 +255,15 @@ class CalendarStore:
             if not mark["layers"]:
                 item["marks"].remove(mark)
             return "已擦除一层"
+        elif operation in {"mark.save", "mark.delete"}:
+            mark_id = identifier(payload.get("id"))
+            mark = next((m for m in item["marks"] if m["id"] == mark_id), None)
+            if mark is None:
+                raise ValidationError("标记不存在，请刷新后重试")
+            if operation == "mark.delete":
+                item["marks"].remove(mark)
+                return "已删除整个标记"
+            mark["comment"] = text(payload.get("comment"), "标记注释", 4000, empty=True)
         elif operation == "note.save":
             note_id = identifier(payload.get("id"))
             note = {
@@ -364,7 +409,7 @@ class CalendarStore:
         )
 
     def export(self):
-        return {"format": "liji-calendar", "schema_version": 1, **self.snapshot()}
+        return {"format": "liji-calendar", "schema_version": 2, **self.snapshot()}
 
     def catalog(self):
         return copy.deepcopy(self.snapshot([])["catalog"])

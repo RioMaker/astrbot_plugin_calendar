@@ -18,6 +18,8 @@ const detail = $("detail-dialog"),
   settings = $("settings-dialog");
 const confirmation = $("confirm-dialog");
 const importDialog = $("import-dialog");
+const markDialog = $("mark-dialog");
+let editingMark = null;
 let importPreview = null,
   importBusy = false,
   importDirty = false;
@@ -107,6 +109,12 @@ async function loadMonth(year, month) {
     if (month !== undefined) params.month = month;
     const snapshot = await bridge.apiGet("month", params);
     if (sequence !== loadSequence) return;
+    if (data && snapshot.scope !== data.scope) {
+      invalidateImportPreview();
+      throw new Error(
+        "管理员 QQ 绑定已变化，请先复制未保存的输入，再重新打开此页面。旧页面不能写入新的账户。",
+      );
+    }
     if (data && snapshot.revision < data.revision)
       return loadMonth(year, month);
     if (data && snapshot.revision !== data.revision) invalidateImportPreview();
@@ -134,6 +142,7 @@ async function loadMonth(year, month) {
 
 function mutate(payload, { path = "mutate", revision } = {}) {
   const epoch = writeEpoch;
+  const scope = data.scope;
   pending++;
   savedStatus();
   const task = queue.then(async () => {
@@ -143,6 +152,7 @@ function mutate(payload, { path = "mutate", revision } = {}) {
       const result = await bridge.apiPost(path, {
         ...payload,
         revision: revision ?? data.revision,
+        scope,
       });
       if (result.revision !== data.revision) invalidateImportPreview();
       data.revision = result.revision;
@@ -195,6 +205,11 @@ function renderTools() {
 function render() {
   if (!data) return;
   $("book-title").textContent = data.catalog.title;
+  $("account-label").textContent = data.account?.configured
+    ? `与管理员 QQ ${data.account.qq} 同步 · 其他用户各自独立`
+    : data.account
+      ? "待绑定管理员 QQ · 请先在插件配置中填写"
+      : "日子有序，记忆有色。";
   document.title = `${data.catalog.title} · 我的日历`;
   $("today-label").textContent = `今天 ${data.today.replaceAll("-", ".")}`;
   renderTools();
@@ -332,7 +347,7 @@ function renderNotesAndMarks() {
     ? item.marks
         .map((mark) => {
           const p = data.catalog.pens.find((p) => p.id === mark.pen_id);
-          return `<span class="mark-chip">${penGlyph(p)}${e(p.name)} ×${mark.layers}<button data-remove-mark="${e(p.id)}" aria-label="擦除一层${e(p.name)}">擦一层</button></span>`;
+          return `<article class="mark-card"><span class="mark-chip">${penGlyph(p)}${e(p.name)} ×${mark.layers}<button data-remove-mark="${e(p.id)}" aria-label="擦除一层${e(p.name)}">擦一层</button></span><small>ID：${e(mark.id)} · ${e(p.color)}</small><p>${e(mark.comment || "暂无注释")}</p><div class="note-actions"><button data-edit-mark="${e(mark.id)}">编辑注释</button><button data-delete-mark="${e(mark.id)}">删除整个标记</button></div></article>`;
         })
         .join("")
     : '<p class="empty-hint">还没有标记，可关闭详情后选择画笔添加。</p>';
@@ -552,7 +567,7 @@ document
   .querySelectorAll("[data-tab]")
   .forEach((button) => (button.onclick = () => selectTab(button.dataset.tab)));
 
-$("detail-marks").onclick = (ev) => {
+$("detail-marks").onclick = async (ev) => {
   const b = ev.target.closest("[data-remove-mark]");
   if (b)
     mutate({
@@ -560,6 +575,77 @@ $("detail-marks").onclick = (ev) => {
       target: selected,
       pen_id: b.dataset.removeMark,
     }).catch(() => {});
+  const edit = ev.target.closest("[data-edit-mark]"),
+    del = ev.target.closest("[data-delete-mark]");
+  if (edit) {
+    const mark = itemFor(selected).marks.find(
+      (m) => m.id === edit.dataset.editMark,
+    );
+    editingMark = {
+      id: mark.id,
+      target: selected,
+      scope: data.scope,
+      comment: mark.comment || "",
+    };
+    $("mark-info").textContent = `${selected} · ID：${mark.id}`;
+    $("mark-comment").value = editingMark.comment;
+    $("mark-error").hidden = true;
+    markDialog.showModal();
+  }
+  if (
+    del &&
+    (await askConfirmation(
+      "删除此标记的全部层数及注释？其他颜色与事件保持不变。",
+    ))
+  ) {
+    mutate({
+      operation: "mark.delete",
+      target: selected,
+      id: del.dataset.deleteMark,
+    }).catch(() => {});
+  }
+};
+async function closeMark() {
+  if (pending) return;
+  if (
+    $("mark-comment").value !== editingMark.comment &&
+    !(await askConfirmation("放弃未保存的标记注释？"))
+  )
+    return;
+  markDialog.close();
+}
+$("cancel-mark").onclick = closeMark;
+$("refresh-mark").onclick = async () => {
+  if (await loadMonth(data.year, data.month)) $("mark-error").hidden = true;
+  else {
+    $("mark-error").textContent = $("error-message").textContent;
+    $("mark-error").hidden = false;
+  }
+};
+markDialog.addEventListener("cancel", (ev) => {
+  ev.preventDefault();
+  closeMark();
+});
+$("mark-form").onsubmit = async (ev) => {
+  ev.preventDefault();
+  if (pending) return;
+  const comment = $("mark-comment").value;
+  try {
+    if (editingMark.scope !== data.scope)
+      throw new Error("账户已变化，请重新打开页面");
+    await mutate({
+      operation: "mark.save",
+      target: editingMark.target,
+      id: editingMark.id,
+      comment,
+    });
+    editingMark.comment = comment;
+    if ($("mark-comment").value === comment) markDialog.close();
+    toast("标记注释已保存");
+  } catch (error) {
+    $("mark-error").textContent = error.message || "保存失败，输入已保留";
+    $("mark-error").hidden = false;
+  }
 };
 $("note-list").onclick = async (ev) => {
   const edit = ev.target.closest("[data-edit-note]"),
@@ -757,7 +843,7 @@ $("export").onclick = async () => {
   if (!data) return;
   try {
     await queue;
-    const record = await bridge.apiGet("export");
+    const record = await bridge.apiGet("export", { scope: data.scope });
     const url = URL.createObjectURL(
       new Blob([JSON.stringify(record, null, 2)], {
         type: "application/json;charset=utf-8",
@@ -919,6 +1005,7 @@ $("import-form").onsubmit = async (event) => {
     const result = await bridge.apiPost("import/preview", {
       text: source,
       revision: data.revision,
+      scope: data.scope,
     });
     if (result.revision !== data.revision)
       throw new Error("日历数据已变化，请重新预览");
@@ -1020,7 +1107,8 @@ window.addEventListener("beforeunload", (ev) => {
     targetDirty ||
     settingsDirty ||
     importDirty ||
-    importBusy
+    importBusy ||
+    (markDialog.open && $("mark-comment").value !== editingMark?.comment)
   ) {
     ev.preventDefault();
     ev.returnValue = "";

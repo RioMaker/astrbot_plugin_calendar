@@ -83,6 +83,73 @@ def close_detail(page):
     expect(page.locator("#detail-dialog")).not_to_be_visible()
 
 
+def test_marker_id_comment_edit_conflict_refresh_and_delete(calendar_page):
+    page = calendar_page
+    page.locator('#pens button[data-pen="income"]').click()
+    day(page).click()
+    day(page).click()
+    page.locator('#pens button[data-pen="expense"]').click()
+    day(page).click()
+    saved(page)
+    page.locator("#browse").click()
+    day(page).click()
+    card = page.locator(".mark-card").first
+    mark_id = card.locator("[data-edit-mark]").get_attribute("data-edit-mark")
+    assert len(mark_id) == 16
+    card.locator("[data-edit-mark]").click()
+    comment = '<img src=x onerror="window.markXss=true"> 空格\n下一行'
+    page.locator("#mark-comment").fill(comment)
+    # Simulate QQ changing the same calendar while this modal remains open.
+    page.evaluate("""async () => {
+      const bridge = window.AstrBotPluginView;
+      const snapshot = await bridge.apiGet('month', {year: 2026, month: 11});
+      await bridge.apiPost('mutate', {revision: snapshot.revision, operation: 'paint', target: '2026-11-20', pen_id: 'income'});
+    }""")
+    page.locator('#mark-form button[type="submit"]').click()
+    expect(page.locator("#mark-error")).to_contain_text("更新")
+    expect(page.locator("#mark-comment")).to_have_value(comment)
+    page.locator("#refresh-mark").click()
+    expect(page.locator("#mark-error")).to_be_hidden()
+    page.locator('#mark-form button[type="submit"]').click()
+    expect(page.locator("#mark-dialog")).not_to_be_visible()
+    expect(card.locator("p")).to_have_text(comment)
+    expect(card.locator("[data-edit-mark]")).to_have_attribute(
+        "data-edit-mark", mark_id
+    )
+    assert page.evaluate("window.markXss") is None
+    close_detail(page)
+    expect(day(page).locator('.marker-badge[data-pen="income"]')).to_have_attribute(
+        "data-layers", "2"
+    )
+    expect(day(page).locator('.marker-badge[data-pen="income"]')).to_have_attribute(
+        "data-tooltip", "得财 · 2层 · " + comment
+    )
+    page.reload()
+    day(page).click()
+    expect(page.locator(".mark-card").first.locator("p")).to_have_text(comment)
+    page.locator("[data-delete-mark]").first.click()
+    page.locator("#confirm-yes").click()
+    expect(page.locator(".mark-card")).to_have_count(1)
+    expect(page.locator(".mark-card")).to_contain_text("破财")
+
+
+def test_switching_web_account_requires_reload_and_retains_old_draft(calendar_page):
+    page = calendar_page
+    day(page).click()
+    page.locator("#note-text").fill("旧账户未保存输入")
+    page.evaluate("""() => {
+      const original = window.AstrBotPluginView.apiGet;
+      window.AstrBotPluginView.apiGet = async (...args) => {
+        const result = await original(...args);
+        return args[0] === 'month' ? {...result, scope: 'qq:22222', revision: 0} : result;
+      };
+    }""")
+    # Reusing a stale revision from a different account must not cause a reload loop.
+    page.locator("#detail-dialog .refresh-data").evaluate("element => element.click()")
+    expect(page.locator("#error-message")).to_contain_text("QQ 绑定已变化")
+    expect(page.locator("#note-text")).to_have_value("旧账户未保存输入")
+
+
 def test_marker_counts_rapid_clicks_eraser_navigation_and_refresh(calendar_page):
     page = calendar_page
     page.locator('#pens button[data-pen="income"]').click()

@@ -1,4 +1,22 @@
 {
+  "admin_qq": {
+    "description": "管理员 QQ（管理页面同步账户）",
+    "type": "string",
+    "default": "",
+    "hint": "填写真实 QQ 号后重载插件。首次填写将已有管理页日历永久绑定此 QQ；之后更换号码只切换管理页，不转移旧数据。其他用户的标记独立保存。QQ 指令支持 OneBot v11（NapCat / Lagrange）。"
+  },
+  "enable_qq_commands": {
+    "description": "启用个人日历和标记指令",
+    "type": "bool",
+    "default": true,
+    "hint": "开放 /日历、/标记、/修改标记、/删除标记；每人只能读写自己的日历。关闭后 AI 工具也不能访问个人日历。"
+  },
+  "enable_ai_tools": {
+    "description": "允许 AI 使用个人日历工具",
+    "type": "bool",
+    "default": true,
+    "hint": "通过 AstrBot 已配置的 AI 调用查看日历、查询、添加、修改注释和删除标记工具；身份来自当前消息发送者，AI 不能指定其他 QQ。"
+  },
   "enable_command": {
     "description": "启用管理员 /历记 指令",
     "type": "bool",

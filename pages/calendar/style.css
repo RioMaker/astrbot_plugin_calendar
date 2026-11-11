@@ -756,6 +756,23 @@ dialog::backdrop {
   gap: 6px;
   flex-wrap: wrap;
 }
+.mark-card {
+  display: grid;
+  flex: 1 1 230px;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  min-width: 0;
+}
+.mark-card p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0;
+}
+.mark-card small {
+  overflow-wrap: anywhere;
+}
 .mark-chip {
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -1174,6 +1191,18 @@ dialog::backdrop {
 .confirm-dialog p {
   font-size: 13px;
   margin-bottom: 18px;
+}
+#mark-dialog {
+  width: 440px;
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+}
+#mark-dialog .form-actions {
+  flex-wrap: wrap;
+}
+#mark-info,
+#mark-error {
+  overflow-wrap: anywhere;
 }
 .number-target,
 .tool {

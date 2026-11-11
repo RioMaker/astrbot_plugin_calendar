@@ -55,7 +55,7 @@ export function markerBadges(marks, pens) {
   if (!entries.length) return "";
   return `<span class="marker-list" aria-hidden="true">${entries
     .map(({ mark, pen }) => {
-      const label = `${pen.name} · ${mark.layers}层`;
+      const label = `${pen.name} · ${mark.layers}层${mark.comment ? ` · ${mark.comment}` : ""}`;
       return `<span class="marker-badge" data-pen="${escapeHTML(pen.id)}" data-layers="${mark.layers}" data-tooltip="${escapeHTML(label)}">${penSVG(pen)}<span class="marker-count">${mark.layers}</span></span>`;
     })
     .join("")}</span>`;

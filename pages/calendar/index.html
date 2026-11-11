@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>历记 · 我的日历</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="app-header">
+        <div class="brand">
+          <span class="brand-icon" aria-hidden="true">历</span>
+          <div>
+            <h1 id="book-title">历记</h1>
+            <p>日子有序，记忆有色。</p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <span class="today-label" id="today-label"></span
+          ><button id="export" class="quiet">导出记录</button
+          ><button id="settings" class="quiet">日历设置</button>
+        </div>
+      </header>
+
+      <section class="toolbox" aria-label="标记工具">
+        <div class="tools-row">
+          <span class="section-label">我的画笔</span>
+          <div id="pens" class="pens"></div>
+          <div class="tool-divider"></div>
+          <button id="browse" class="tool active" aria-pressed="true">
+            ↖ 浏览 / 备注</button
+          ><button id="eraser" class="tool" aria-pressed="false">◇ 橡皮</button
+          ><button id="add-pen" class="add-tool">＋ 新建画笔</button
+          ><button id="manage-pens" class="quiet small">管理</button>
+        </div>
+        <div class="tool-help">
+          <span id="mode-hint"
+            >点击日期添加备注；选择画笔，为年、月、日做标记。</span
+          ><span id="save-status" role="status">正在连接…</span>
+        </div>
+      </section>
+
+      <div id="error-banner" class="banner error" role="alert" hidden>
+        <span id="error-message"></span
+        ><button id="retry" class="quiet">重新加载</button>
+      </div>
+      <div id="coverage-warning" class="banner warning" hidden></div>
+
+      <section class="calendar-panel" aria-label="标准月历">
+        <header class="calendar-header">
+          <div class="month-heading">
+            <div class="month-numbers">
+              <button
+                id="year-target"
+                class="number-target heading-target"
+                aria-label="编辑年份"
+              ></button
+              ><span class="date-unit">年</span
+              ><button
+                id="month-target"
+                class="number-target heading-target month-number"
+                aria-label="编辑月份"
+              ></button
+              ><span class="date-unit">月</span>
+            </div>
+            <div id="month-summary" class="month-summary"></div>
+          </div>
+          <div class="navigation">
+            <div class="nav-buttons">
+              <button id="prev" class="icon-button" aria-label="上个月">
+                ‹</button
+              ><button id="today" class="quiet">今天</button
+              ><button id="next" class="icon-button" aria-label="下个月">
+                ›
+              </button>
+            </div>
+            <form id="jump-form" class="jump-form">
+              <input
+                id="jump-year"
+                type="number"
+                min="1901"
+                max="2099"
+                aria-label="跳转年份"
+                required
+              /><select id="jump-month" aria-label="跳转月份"></select
+              ><button class="quiet" type="submit">前往</button>
+            </form>
+          </div>
+        </header>
+        <div id="period-notes" class="period-notes" hidden></div>
+        <p class="scroll-hint">左右滑动查看完整周历 · 点日期查看详情</p>
+        <div class="calendar-scroll" tabindex="0" aria-label="月历，可横向滚动">
+          <table class="calendar" id="calendar">
+            <caption class="sr-only" id="calendar-caption">
+              月历
+            </caption>
+            <thead id="weekdays"></thead>
+            <tbody id="days"></tbody>
+          </table>
+        </div>
+        <footer class="calendar-footer">
+          <div class="legend">
+            <span><i class="legend-dot holiday"></i>放假</span
+            ><span><i class="legend-dot workday"></i>调休上班</span
+            ><span><i class="legend-dot term"></i>节气</span>
+          </div>
+          <span id="calendar-footnote"
+            >六行七列标准月历 · 所有标记精确对应所选年月日</span
+          >
+        </footer>
+      </section>
+      <p class="bottom-note">把重要的日子圈起来，把想记住的事写下来。</p>
+    </main>
+
+    <dialog
+      id="detail-dialog"
+      class="detail-dialog"
+      aria-labelledby="detail-title"
+    >
+      <div class="drawer-header">
+        <div>
+          <p class="eyebrow" id="detail-kind">这一天</p>
+          <h2 id="detail-title"></h2>
+          <p id="detail-subtitle"></p>
+        </div>
+        <button class="icon-button close-detail" aria-label="关闭日期详情">
+          ×
+        </button>
+      </div>
+      <div class="inline-error" data-inline-error role="alert" hidden>
+        <span></span
+        ><button type="button" class="quiet refresh-data">
+          刷新数据，保留输入
+        </button>
+      </div>
+      <div class="drawer-body">
+        <div id="date-facts"></div>
+        <section>
+          <div class="section-heading">
+            <h3>标记</h3>
+            <span>每支画笔最多三层</span>
+          </div>
+          <div id="detail-marks" class="detail-marks"></div>
+        </section>
+        <section>
+          <div class="section-heading">
+            <h3>当天备注</h3>
+            <span id="note-count"></span>
+          </div>
+          <div id="note-list" class="note-list"></div>
+          <form id="note-form" class="note-form">
+            <input type="hidden" id="note-id" /><label
+              for="note-text"
+              id="note-form-label"
+              >写一条新备注</label
+            ><textarea
+              id="note-text"
+              rows="3"
+              maxlength="4000"
+              placeholder="今天发生了什么，或者有什么值得期待…"
+              required
+            ></textarea>
+            <div class="form-actions">
+              <label class="color-label"
+                >信息条颜色<input id="note-color" type="color" value="#658773"
+              /></label>
+              <div>
+                <button type="button" id="cancel-note" class="quiet" hidden>
+                  取消编辑</button
+                ><button type="submit" class="primary">保存备注</button>
+              </div>
+            </div>
+          </form>
+        </section>
+        <section>
+          <div class="section-heading">
+            <h3>条件与状态</h3>
+            <button
+              id="add-field-from-detail"
+              class="quiet small"
+              type="button"
+            >
+              管理字段
+            </button>
+          </div>
+          <form id="target-form">
+            <div id="custom-values" class="form-stack"></div>
+            <div id="day-overrides" class="form-stack">
+              <label
+                >追加节日<input
+                  id="custom-festivals"
+                  maxlength="409"
+                  placeholder="例如：纪念日、店庆（用逗号分隔）" /></label
+              ><label
+                >放假 / 上班状态<select id="holiday-status">
+                  <option value="auto">采用日期库安排</option>
+                  <option value="holiday">放假</option>
+                  <option value="workday">调休上班</option>
+                  <option value="weekend">周末休息</option>
+                  <option value="normal">普通工作日</option>
+                  <option value="unknown">待确认</option>
+                </select></label
+              ><label
+                >安排说明<input
+                  id="holiday-name"
+                  maxlength="80"
+                  placeholder="手动安排的名称或依据"
+              /></label>
+            </div>
+            <button type="submit" class="secondary full-width">
+              保存条件与状态
+            </button>
+          </form>
+        </section>
+      </div>
+      <footer class="drawer-footer">
+        <span id="draft-status">修改后请点击对应的保存按钮</span
+        ><button class="quiet close-detail">完成</button>
+      </footer>
+    </dialog>
+
+    <dialog
+      id="settings-dialog"
+      class="settings-dialog"
+      aria-labelledby="settings-title"
+    >
+      <div class="dialog-header">
+        <h2 id="settings-title">管理我的日历</h2>
+        <button
+          id="close-settings"
+          class="icon-button"
+          aria-label="关闭日历设置"
+        >
+          ×
+        </button>
+      </div>
+      <div class="inline-error" data-inline-error role="alert" hidden>
+        <span></span
+        ><button type="button" class="quiet refresh-data">
+          刷新数据，保留输入
+        </button>
+      </div>
+      <nav class="tabs" aria-label="设置分类">
+        <button data-tab="pens" class="active">画笔</button
+        ><button data-tab="fields">扩展字段</button
+        ><button data-tab="calendar">日历设置</button>
+      </nav>
+      <div class="dialog-content">
+        <section id="tab-pens">
+          <p class="muted">
+            画笔可以用于年、月、日。修改颜色或形状会同步更新已有标记。
+          </p>
+          <div id="pen-list" class="manager-list"></div>
+          <form id="pen-form" class="form-stack">
+            <input id="pen-id" type="hidden" /><label
+              >画笔名称<input
+                id="pen-name"
+                maxlength="24"
+                placeholder="例如：得财、破财、重要日"
+                required
+            /></label>
+            <div class="form-grid">
+              <label
+                >记号形状<select id="pen-shape">
+                  <option value="circle">圆圈</option>
+                  <option value="square">方框</option>
+                  <option value="diamond">菱形</option>
+                  <option value="triangle">三角形</option>
+                </select></label
+              ><label
+                >颜色<input id="pen-color" type="color" value="#ce4545"
+              /></label>
+            </div>
+            <div class="form-actions">
+              <button type="button" id="new-pen" class="quiet">
+                清空，新建画笔</button
+              ><button type="submit" class="primary">保存画笔</button>
+            </div>
+          </form>
+        </section>
+        <section id="tab-fields" hidden>
+          <p class="muted">
+            添加可重复使用的条件，在年、月或日的详情中填写。各层级独立保存。
+          </p>
+          <div id="field-list" class="manager-list"></div>
+          <form id="field-form" class="form-stack">
+            <input id="field-id" type="hidden" /><label
+              >字段名称<input
+                id="field-name"
+                maxlength="24"
+                placeholder="例如：财务状态、已复盘、心情"
+                required /></label
+            ><label
+              >字段类型<select id="field-kind">
+                <option value="select">下拉状态</option>
+                <option value="boolean">是 / 否</option>
+                <option value="text">文本</option>
+              </select></label
+            ><label id="field-options-label"
+              >可选状态<input
+                id="field-options"
+                maxlength="619"
+                placeholder="例如：待记录、已确认、待复盘（用逗号分隔）"
+            /></label>
+            <div class="form-actions">
+              <button type="button" id="new-field" class="quiet">
+                清空，新建字段</button
+              ><button type="submit" class="primary">保存字段</button>
+            </div>
+          </form>
+        </section>
+        <section id="tab-calendar" hidden>
+          <form id="settings-form" class="form-stack">
+            <label
+              >日历名称<input
+                id="settings-name"
+                maxlength="32"
+                required /></label
+            ><label
+              >每周的第一天<select id="week-start">
+                <option value="0">星期一</option>
+                <option value="6">星期日</option>
+              </select></label
+            ><label
+              >干支年的换年口径<select id="year-boundary">
+                <option value="spring_festival">春节（正月初一）</option>
+                <option value="lichun">立春日</option>
+              </select></label
+            ><label class="color-label"
+              >默认备注条颜色<input id="default-note-color" type="color"
+            /></label>
+            <p class="muted">
+              月干支按节令日期，日干支在零点换日。五行显示天干五行与地支本气，不作为纳音或藏干展示。
+            </p>
+            <button type="submit" class="primary">保存日历设置</button>
+          </form>
+          <div class="data-note" id="data-note"></div>
+        </section>
+      </div>
+    </dialog>
+    <dialog
+      id="confirm-dialog"
+      class="confirm-dialog"
+      aria-labelledby="confirm-title"
+      aria-describedby="confirm-message"
+    >
+      <h2 id="confirm-title">确认操作</h2>
+      <p id="confirm-message"></p>
+      <div class="form-actions">
+        <button id="confirm-no" class="quiet" autofocus>取消</button
+        ><button id="confirm-yes" class="primary">确认</button>
+      </div>
+    </dialog>
+    <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+    <div id="toast" class="toast" role="status" hidden></div>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

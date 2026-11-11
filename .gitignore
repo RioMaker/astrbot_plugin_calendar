@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.venv/
+.test-deps/
+.cache/
+.pytest_cache/
+.ruff_cache/
+.preview/
+node_modules/
+*.sqlite3*
+*.log

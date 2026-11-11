@@ -1,0 +1,13 @@
+{
+  "name": "astrbot-plugin-calendar-dev",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "format": "prettier --write pages/calendar/",
+    "test:render": "node --test tests/render.test.mjs",
+    "check": "prettier --check pages/calendar/ && node --check pages/calendar/app.js && node --check pages/calendar/render.js"
+  },
+  "devDependencies": {
+    "prettier": "3.9.10"
+  }
+}

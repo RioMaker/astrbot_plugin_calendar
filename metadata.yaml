@@ -1,0 +1,7 @@
+name: astrbot_plugin_calendar
+display_name: 历记
+desc: 标准月历、农历干支五行、节日调休、可叠加的年月日标记画笔、多条彩色备注与扩展状态。
+version: 0.1.0
+author: hr
+repo: ""
+astrbot_version: ">=4.29.4,<5"

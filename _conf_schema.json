@@ -1,0 +1,8 @@
+{
+  "enable_command": {
+    "description": "启用管理员 /历记 指令",
+    "type": "bool",
+    "default": true,
+    "hint": "日历编辑请进入插件详情的可视化页面。此指令只提供打开说明和日期基础信息，不发送私人备注。"
+  }
+}
